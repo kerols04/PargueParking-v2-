@@ -1,0 +1,16 @@
+﻿# PRISLISTA - PRAGUE PARKING
+# Format: VehicleType=PricePerHour
+# Rader som börjar med # är kommentarer
+
+# Priser per timme (CZK)
+Car=20
+MC=10
+
+# Priser per timme (CZK = Tjeckiska kronor)
+Car=20
+MC=10
+
+# Första minuterna är gratis
+FreeMinutes=10
+
+# 
