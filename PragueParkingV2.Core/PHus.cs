@@ -4,156 +4,158 @@ using System.Linq;
 
 namespace PragueParkingV2.Core
 {
-    // Representerar hela parkeringshuset (globalt i appen).
     public static class PHus
     {
-        private static List<ParkingSpot> parkingSpots = new List<ParkingSpot>();
-
-        // Den config som gäller just nu (laddas i Program.cs).
+        private static List<ParkingSpot> _spots = new List<ParkingSpot>();
         public static Config CurrentConfig { get; private set; } = new Config();
 
-        static PHus()
-        {
-            // Default om config inte hunnit laddas än.
-            ResetSpots(100, 4);
-        }
+        // Används när vi vill visa platser i UI
+        public static IReadOnlyList<ParkingSpot> GetAllSpots() => _spots.AsReadOnly();
 
-        // Sätt config (körs i Program.cs efter LoadConfig).
         public static void ApplyConfig(Config config)
         {
-            CurrentConfig = config ?? new Config();
+            config.Normalize();
+            CurrentConfig = config;
 
-            // Säkerhetsnät ifall någon råkar få null i json.
-            CurrentConfig.VehicleTypes ??= new List<string> { "Car", "MC" };
-            CurrentConfig.MaxVehiclesPerSpot ??= new Dictionary<string, int> { { "Car", 1 }, { "MC", 2 } };
+            // Gör config tillgänglig för Car/MC osv.
+            GarageSettings.Apply(config);
+        }
+
+        // Skapar en tom parkering enligt config (inkl. olika platsstorlekar)
+        public static void ResetFromConfig()
+        {
+            _spots.Clear();
+
+            for (int i = 1; i <= CurrentConfig.TotalSpots; i++)
+            {
+                int size = CurrentConfig.GetSpotSize(i);
+                _spots.Add(new ParkingSpot(i, size));
+            }
         }
 
         public static void LoadSpots(List<ParkingSpot> spots)
         {
-            if (spots != null && spots.Count > 0)
-            {
-                parkingSpots = spots;
-                Console.WriteLine($"✓ {spots.Count} parkeringsplatser laddade från fil");
-                Console.WriteLine($"✓ {GetAllVehicles().Count} fordon är parkerade");
-            }
+            _spots = spots ?? new List<ParkingSpot>();
         }
 
-        // Skapar om garaget med valfritt antal platser + valfri platsstorlek.
-        public static void ResetSpots(int numberOfSpots = 100, int spotSize = 4)
-        {
-            parkingSpots.Clear();
-
-            for (int i = 1; i <= numberOfSpots; i++)
-                parkingSpots.Add(new ParkingSpot(i, spotSize));
-
-            Console.WriteLine($"✓ Parkeringshuset initierat med {numberOfSpots} platser (SpotSize={spotSize})");
-        }
-
-        // Ser till att garaget matchar config när man laddat från fil.
+        // Ser till att antal platser och kapacitet matchar config (utan att “förstöra” parkerade fordon)
         public static void EnsureGarageMatchesConfig()
         {
-            int desiredCount = CurrentConfig.TotalSpots;
-            int desiredSize = CurrentConfig.SpotSize;
+            int desired = CurrentConfig.TotalSpots;
 
-            if (parkingSpots == null) parkingSpots = new List<ParkingSpot>();
-
-            // Uppdatera kapacitet på rutor där det är säkert (ingen data går sönder).
-            foreach (var spot in parkingSpots)
+            // Justera befintliga platser (kapacitet får aldrig bli < redan använd yta)
+            for (int i = 0; i < _spots.Count; i++)
             {
-                int used = spot.Capacity - spot.GetAvailableSpace();
-                if (desiredSize >= used)
-                    spot.Capacity = desiredSize;
+                int spotNo = _spots[i].SpotNumber;
+                int desiredSize = CurrentConfig.GetSpotSize(spotNo);
+
+                if (_spots[i].GetUsedSpace() <= desiredSize)
+                    _spots[i].Capacity = desiredSize;
             }
 
-            // Expandera om config vill ha fler platser.
-            if (parkingSpots.Count < desiredCount)
+            // Lägg till nya tomma platser om config säger fler
+            while (_spots.Count < desired)
             {
-                for (int i = parkingSpots.Count + 1; i <= desiredCount; i++)
-                    parkingSpots.Add(new ParkingSpot(i, desiredSize));
+                int newSpotNo = _spots.Count + 1;
+                int size = CurrentConfig.GetSpotSize(newSpotNo);
+                _spots.Add(new ParkingSpot(newSpotNo, size));
             }
 
-            // Krymp om config vill ha färre (tar bara bort tomma rutor längst bak).
-            while (parkingSpots.Count > desiredCount && parkingSpots.Last().IsEmpty())
-            {
-                parkingSpots.RemoveAt(parkingSpots.Count - 1);
-            }
+            // Ta bort tomma platser i slutet om config säger färre
+            while (_spots.Count > desired && _spots.Last().IsEmpty())
+                _spots.RemoveAt(_spots.Count - 1);
         }
 
-        public static int GetAvailableSpace() => parkingSpots.Sum(spot => spot.GetAvailableSpace());
-        public static List<ParkingSpot> GetAllSpots() => parkingSpots;
-        public static List<Vehicle> GetAllVehicles() => parkingSpots.SelectMany(s => s.ParkedVehicles).ToList();
-
-        // Parkerar med hänsyn till config (max/typer) och försöker para ihop MC.
         public static bool ParkVehicle(Vehicle vehicle)
         {
-            if (vehicle == null) return false;
-
-            IEnumerable<ParkingSpot> sortedSpots = parkingSpots.OrderBy(s => s.SpotNumber);
-
-            // Extra smart: om det är en MC, prioritera rutor som redan har exakt 1 MC.
-            if (vehicle is MC)
+            // Först: försök plats som redan har samma typ (fyll upp smart)
+            foreach (var spot in _spots)
             {
-                sortedSpots = parkingSpots
-                    .OrderByDescending(s =>
-                        s.ParkedVehicles.Count == 1 &&
-                        s.ParkedVehicles[0] is MC &&
-                        !s.IsFull(CurrentConfig))
-                    .ThenBy(s => s.SpotNumber);
+                if (!spot.IsEmpty() && spot.ParkedVehicles[0].GetType() == vehicle.GetType())
+                {
+                    if (spot.TryParkVehicle(vehicle, CurrentConfig))
+                        return true;
+                }
             }
 
-            foreach (var spot in sortedSpots)
+            // Sen: hitta en tom plats
+            foreach (var spot in _spots)
             {
-                if (spot.TryParkVehicle(vehicle, CurrentConfig))
+                if (spot.IsEmpty() && spot.TryParkVehicle(vehicle, CurrentConfig))
                     return true;
             }
 
             return false;
         }
 
-        public static Vehicle RetrieveVehicle(string regNo)
+        // Flyttar fordon till en specifik plats (rollback om flytten misslyckas)
+        public static bool MoveVehicle(string regNo, int targetSpotNumber)
         {
-            foreach (var spot in parkingSpots)
-            {
-                Vehicle vehicle = spot.RemoveVehicle(regNo);
-                if (vehicle != null) return vehicle;
-            }
-            return null;
-        }
+            if (targetSpotNumber < 1 || targetSpotNumber > _spots.Count)
+                return false;
 
-        // Flytt: säkert (tappar inte bort fordonet om parkering misslyckas).
-        public static bool MoveVehicle(string regNo)
-        {
-            var fromSpot = parkingSpots.FirstOrDefault(s =>
-                s.ParkedVehicles.Any(v => v.RegNo.Equals(regNo, StringComparison.OrdinalIgnoreCase)));
+            int currentSpotNo = FindVehicle(regNo);
+            if (currentSpotNo == -1)
+                return false;
 
-            if (fromSpot == null) return false;
+            if (currentSpotNo == targetSpotNumber)
+                return false;
 
-            var vehicle = fromSpot.RemoveVehicle(regNo);
-            if (vehicle == null) return false;
+            Vehicle? vehicle = GetVehicle(regNo);
+            if (vehicle == null)
+                return false;
 
-            if (ParkVehicle(vehicle))
+            var fromSpot = _spots[currentSpotNo - 1];
+            var toSpot = _spots[targetSpotNumber - 1];
+
+            // Ta bort först (annars blockar reglerna ofta)
+            if (!fromSpot.RemoveVehicle(regNo))
+                return false;
+
+            // Försök parkera på target
+            if (toSpot.TryParkVehicle(vehicle, CurrentConfig))
                 return true;
 
-            // Om vi inte hittar ny plats: lägg tillbaka på originalrutan.
+            // Rollback om target inte går
             fromSpot.TryParkVehicle(vehicle, CurrentConfig);
             return false;
         }
 
-        public static Vehicle FindVehicle(string regNo) =>
-            GetAllVehicles().FirstOrDefault(v => v.RegNo.Equals(regNo, StringComparison.OrdinalIgnoreCase));
-
-        public static int FindSpotNumber(string regNo)
+        public static bool RemoveVehicle(string regNo)
         {
-            foreach (var spot in parkingSpots)
+            foreach (var spot in _spots)
             {
-                if (spot.ParkedVehicles.Any(v => v.RegNo.Equals(regNo, StringComparison.OrdinalIgnoreCase)))
+                if (spot.RemoveVehicle(regNo))
+                    return true;
+            }
+            return false;
+        }
+
+        public static int FindVehicle(string regNo)
+        {
+            regNo = (regNo ?? "").Trim().ToUpperInvariant();
+
+            foreach (var spot in _spots)
+            {
+                if (spot.ParkedVehicles.Any(v => v.RegNo == regNo))
                     return spot.SpotNumber;
             }
             return -1;
         }
 
-        public static int CountEmptySpots() => parkingSpots.Count(s => s.IsEmpty());
-        public static int CountFullSpots() => parkingSpots.Count(s => s.IsFull(CurrentConfig));
-        public static int CountPartialSpots() => parkingSpots.Count(s => !s.IsEmpty() && !s.IsFull(CurrentConfig));
+        public static Vehicle? GetVehicle(string regNo)
+        {
+            regNo = (regNo ?? "").Trim().ToUpperInvariant();
+
+            foreach (var spot in _spots)
+            {
+                var v = spot.ParkedVehicles.FirstOrDefault(x => x.RegNo == regNo);
+                if (v != null) return v;
+            }
+            return null;
+        }
+
+        public static List<Vehicle> GetAllVehicles()
+            => _spots.SelectMany(s => s.ParkedVehicles).ToList();
     }
 }
