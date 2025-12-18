@@ -1,19 +1,14 @@
-//{
-//"TotalSpots": 100, "SpotSize": 4, "FreeMinutes": 10, "VehicleTypes": [
-  //  {
-  //    "TypeName": "Car",
-  //   "Size": 4,
-  //    "MaxPerSpot": 1,
-  //    "PricePerHour": 20,
-  //  },
-  //  {
-  //   "TypeName": "MC",
-  //   "Size": 1,
-  //   "MaxPerSpot": 4,
-  //   "PricePerHour": 10,
-  //  },
-  //] }
 {
+  "_comment": "Prague Parking V2 - config. OBS: JSON tillåter inte //-kommentarer, använd _comment istället.",
   "TotalSpots": 100,
-  "SpotSize": 4
+
+  "DefaultSpotSize": 4,
+  "SpotSizeOverrides": [
+    { "From": 1, "To": 10, "Size": 8 }
+  ],
+
+  "VehicleTypes": [
+    { "Key": "Car", "DisplayName": "Bil", "Size": 4, "MaxPerSpot": 1 },
+    { "Key": "MC", "DisplayName": "Motorcykel", "Size": 1, "MaxPerSpot": 4 }
+  ]
 }
