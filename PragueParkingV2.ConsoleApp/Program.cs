@@ -1,45 +1,39 @@
-using PragueParkingV2.ConsoleApp;
 using PragueParkingV2.Core;
 using PragueParkingV2.Data;
-using System;
 
 namespace PragueParkingV2.ConsoleApp
 {
-    class Program
+    public class Program
     {
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
-            // 1) Prislista först (behövs för avgifter + tester).
-            PriceList.LoadPrices();
+            // Ladda prislista + config först
+            PriceList.LoadPrices("PriceList.txt");
 
-            // 2) Ladda config och aktivera den i PHus.
             var config = FileManager.LoadConfig();
             PHus.ApplyConfig(config);
 
-            // 3) Ladda sparad data (om den finns).
+            // Ladda parkeringsdata
             var spots = FileManager.LoadData();
 
-            if (spots != null && spots.Count > 0)
+            if (spots.Count == 0)
             {
-                PHus.LoadSpots(spots);
-
-                // Säkerställer att garage-storlek/SpotSize följer config när det går.
-                PHus.EnsureGarageMatchesConfig();
+                // Första körningen: skapa tom parkering enligt config
+                PHus.ResetFromConfig();
+                FileManager.SaveData(PHus.GetAllSpots().ToList());
             }
             else
             {
-                // Om ingen data finns: skapa nytt garage enligt config.
-                PHus.ResetSpots(config.TotalSpots, config.SpotSize);
+                // Annars: använd sparad data och justera mot config
+                PHus.LoadSpots(spots);
+                PHus.EnsureGarageMatchesConfig();
             }
 
-            // 4) Starta menyn.
-            ConsoleUI.Run();
+            var ui = new ConsoleUI();
+            ui.Run();
 
-            // 5) Spara vid avslut.
-            Console.WriteLine();
-            Console.WriteLine("→ Sparar parkeringsdata...");
-            FileManager.SaveData(PHus.GetAllSpots());
-            Console.WriteLine("Tack för att du använde systemet!");
+            // Spara alltid när programmet avslutas
+            FileManager.SaveData(PHus.GetAllSpots().ToList());
         }
     }
 }
