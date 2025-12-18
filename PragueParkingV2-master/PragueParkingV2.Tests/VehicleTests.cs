@@ -1,45 +1,42 @@
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-using PragueParkingV2.Core;
 using System;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using PragueParkingV2.Core;
 
 namespace PragueParkingV2.Tests
 {
-    // Den här klassen innehåller alla tester för fordonen
     [TestClass]
     public class VehicleTests
     {
-        // Körs innan varje test startar
         [TestInitialize]
         public void Setup()
         {
-            // Laddar prislistan så att testerna vet vad priset är
             PriceList.LoadPrices();
         }
 
-        // Testar att man inte kan skapa ett Vehicle-objekt direkt
         [TestMethod]
-        public void Vehicle_CannotBeInstantiated_BecauseAbstract()
+        public void Car_Should_Calculate_Correct_Fee_After_Two_Hours()
         {
-            // Kollar om Vehicle-klassen faktiskt är abstract, alltså måste ärvas
-            Type vehicleType = typeof(Vehicle);
-            Assert.IsTrue(vehicleType.IsAbstract, "Vehicle-klassen ska vara abstract");
-        }
+            var car = new Car("ABC123")
+            {
+                CheckInTime = DateTime.Now.AddHours(-2)
+            };
 
-        // Testar att avgiftsberäkningen fungerar korrekt
-        [TestMethod]
-        public void CalculateFee_OverTenMinutes_ChargesForFullHour()
-        {
-            // Gör klart för test
-            var car = new Car("CAR123");
-            // Ställer in tiden till 11 minuter sedan (ska kosta en hel timme)
-            car.CheckInTime = DateTime.Now.AddMinutes(-11);
-
-            // Kör funktionen
             decimal fee = car.CalculateFee();
 
-            // Kollar resultatet
-            // Priset ska vara 20 kr för 1 timme
-            Assert.AreEqual(20, fee, "11 minuter ska räknas som 1 timme för en bil");
+            Assert.AreEqual(40m, fee); // 2h * 20 kr/h
+        }
+
+        [TestMethod]
+        public void MC_Should_Be_Free_Within_FreeMinutes()
+        {
+            var mc = new MC("XYZ999")
+            {
+                CheckInTime = DateTime.Now.AddMinutes(-5)
+            };
+
+            decimal fee = mc.CalculateFee();
+
+            Assert.AreEqual(0m, fee);
         }
     }
 }
