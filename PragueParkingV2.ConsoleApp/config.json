@@ -1,14 +1,12 @@
 {
-  "_comment": "Prague Parking V2 - config. OBS: JSON tillåter inte //-kommentarer, använd _comment istället.",
+  "_comment": "Storlek: Bicycle=1, MC=2, Car=4 (en plats=4). SpotSizeOverrides visar att vissa platser kan vara större.",
   "TotalSpots": 100,
-
   "DefaultSpotSize": 4,
   "SpotSizeOverrides": [
     { "From": 1, "To": 10, "Size": 8 }
   ],
-
   "VehicleTypes": [
     { "Key": "Car", "DisplayName": "Bil", "Size": 4, "MaxPerSpot": 1 },
-    { "Key": "MC", "DisplayName": "Motorcykel", "Size": 1, "MaxPerSpot": 4 }
+    { "Key": "MC", "DisplayName": "Motorcykel", "Size": 2, "MaxPerSpot": 2 }
   ]
 }
