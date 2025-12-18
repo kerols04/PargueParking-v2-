@@ -1,21 +1,20 @@
-using System;
-
 namespace PragueParkingV2.Core
 {
     public class MC : Vehicle
     {
+        public MC()
+        {
+            Size = GarageSettings.GetVehicleSize(nameof(MC), 2);
+        }
+
         public MC(string regNo) : base(regNo)
         {
-            Size = GarageSettings.Current.GetVehicleSize("MC", fallback: 1);
+            Size = GarageSettings.GetVehicleSize(nameof(MC), 2);
         }
 
-        public MC() : base()
-        {
-            Size = GarageSettings.Current.GetVehicleSize("MC", fallback: 1);
-        }
+        public override decimal GetHourlyRate() => PriceList.GetPrice(nameof(MC));
 
-        public override decimal GetHourlyRate() => PriceList.GetPrice("MC");
-
-        public override string GetVehicleTypeName() => "Motorcykel";
+        public override string GetVehicleTypeName()
+            => GarageSettings.GetDisplayName(nameof(MC), "Motorcykel");
     }
 }
