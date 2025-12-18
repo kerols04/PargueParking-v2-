@@ -1,5 +1,9 @@
 {
   "TotalSpots": 100,
   "SpotSize": 4,
-  "FreeMinutes": 10
+  "VehicleTypes": ["Car", "MC"],
+  "MaxVehiclesPerSpot": {
+    "Car": 1,
+    "MC": 2
+  }
 }
