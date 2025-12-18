@@ -1,168 +1,146 @@
+using PragueParkingV2.Core;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using PragueParkingV2.Core;
 
 namespace PragueParkingV2.Data
 {
     public static class FileManager
     {
-        // Output-mappen där appen körs (bra på lärarens dator också)
-        private static readonly string BaseDir = AppContext.BaseDirectory;
+        private static readonly string dataFilePath = Path.Combine(AppContext.BaseDirectory, "parkingdata.json");
+        private static readonly string configFilePath = Path.Combine(AppContext.BaseDirectory, "config.json");
 
-        // Filnamn hålls nära koden så det är lätt att hitta/ändra
-        private static readonly string DataFilePath = Path.Combine(BaseDir, "parkingdata.json");
-        private static readonly string ConfigFilePath = Path.Combine(BaseDir, "config.json");
-        private static readonly string ErrorLogPath = Path.Combine(BaseDir, "pp_error.log");
-
-        // JSON-inställningar + custom converter för Vehicle (arv Car/MC)
-        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            Converters = { new VehicleConverter() }
-        };
-
-        // Sparar hela listan av p-platser till JSON (kallas vid varje förändring)
         public static void SaveData(List<ParkingSpot> parkingSpots)
         {
             try
             {
-                string json = JsonSerializer.Serialize(parkingSpots, JsonOptions);
-                File.WriteAllText(DataFilePath, json);
+                var options = new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Converters = { new VehicleConverter() }
+                };
+
+                string json = JsonSerializer.Serialize(parkingSpots, options);
+                File.WriteAllText(dataFilePath, json);
             }
             catch (Exception ex)
             {
-                LogError("SaveData", ex);
+                Console.WriteLine("Fel vid sparning av data: " + ex.Message);
             }
         }
 
-        // Läser p-platser från JSON. Om fil saknas skapas en tom datafil.
         public static List<ParkingSpot> LoadData()
         {
             try
             {
-                if (!File.Exists(DataFilePath))
+                if (!File.Exists(dataFilePath))
                 {
-                    // För G räcker tom startdata (för VG 2.1 kan du fylla på testdata här)
+                    // Skapar filen första gången (tom lista)
                     SaveData(new List<ParkingSpot>());
                     return new List<ParkingSpot>();
                 }
 
-                string json = File.ReadAllText(DataFilePath);
-                var data = JsonSerializer.Deserialize<List<ParkingSpot>>(json, JsonOptions);
+                var options = new JsonSerializerOptions
+                {
+                    Converters = { new VehicleConverter() }
+                };
 
-                return data ?? new List<ParkingSpot>();
+                string json = File.ReadAllText(dataFilePath);
+                return JsonSerializer.Deserialize<List<ParkingSpot>>(json, options) ?? new List<ParkingSpot>();
             }
             catch (Exception ex)
             {
-                LogError("LoadData", ex);
+                Console.WriteLine("Fel vid laddning av data: " + ex.Message);
                 return new List<ParkingSpot>();
             }
         }
 
-        // Sparar konfiguration (antal platser, fordonstyper osv)
         public static void SaveConfig(Config config)
         {
             try
             {
-                string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(ConfigFilePath, json);
+                config.Normalize();
+
+                var options = new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                };
+
+                string json = JsonSerializer.Serialize(config, options);
+                File.WriteAllText(configFilePath, json);
             }
             catch (Exception ex)
             {
-                LogError("SaveConfig", ex);
+                Console.WriteLine("Fel vid sparning av config: " + ex.Message);
             }
         }
 
-        // Läser konfiguration. Om fil saknas skapas default config.
         public static Config LoadConfig()
         {
             try
             {
-                if (!File.Exists(ConfigFilePath))
+                if (!File.Exists(configFilePath))
                 {
                     var defaultConfig = new Config();
+                    defaultConfig.Normalize();
                     SaveConfig(defaultConfig);
                     return defaultConfig;
                 }
 
-                string json = File.ReadAllText(ConfigFilePath);
-                var cfg = JsonSerializer.Deserialize<Config>(json);
-
-                return cfg ?? new Config();
+                string json = File.ReadAllText(configFilePath);
+                var cfg = JsonSerializer.Deserialize<Config>(json) ?? new Config();
+                cfg.Normalize();
+                return cfg;
             }
             catch (Exception ex)
             {
-                LogError("LoadConfig", ex);
+                Console.WriteLine("Fel vid laddning av config: " + ex.Message);
                 return new Config();
             }
         }
 
-        // Enkel fellogg för att slippa “tyst fail” på lärarens dator
-        private static void LogError(string where, Exception ex)
+        // Converter som sparar/laddar rätt subklass (Car/MC)
+        private class VehicleConverter : JsonConverter<Vehicle>
         {
-            try
+            public override Vehicle Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
             {
-                File.AppendAllText(
-                    ErrorLogPath,
-                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {where}: {ex}\n\n"
-                );
+                using var doc = JsonDocument.ParseValue(ref reader);
+                var root = doc.RootElement;
+
+                string type = root.GetProperty("Type").GetString() ?? "";
+                string regNo = root.GetProperty("RegNo").GetString() ?? "";
+                DateTime checkIn = root.GetProperty("CheckInTime").GetDateTime();
+
+                Vehicle vehicle = type.ToUpperInvariant() switch
+                {
+                    "CAR" => new Car(),
+                    "MC" => new MC(),
+                    _ => throw new NotSupportedException("Okänd fordonstyp: " + type)
+                };
+
+                vehicle.RegNo = regNo;
+                vehicle.CheckInTime = checkIn;
+
+                // Storlek tas från config (säkrare än att lita på gamla sparade värden)
+                vehicle.Size = GarageSettings.GetVehicleSize(vehicle.GetType().Name, vehicle.Size);
+
+                return vehicle;
             }
-            catch
+
+            public override void Write(Utf8JsonWriter writer, Vehicle value, JsonSerializerOptions options)
             {
-                // Om logging också misslyckas finns inget mer att göra här.
+                writer.WriteStartObject();
+
+                // Type används för att kunna skapa rätt subklass vid Read()
+                writer.WriteString("Type", value.GetType().Name);
+                writer.WriteString("RegNo", value.RegNo);
+                writer.WriteNumber("Size", value.Size);
+                writer.WriteString("CheckInTime", value.CheckInTime);
+
+                writer.WriteEndObject();
             }
-        }
-    }
-
-    // Converter som deserialiserar rätt subklass (Car/MC) när JSON läses in
-    public class VehicleConverter : JsonConverter<Vehicle>
-    {
-        public override Vehicle Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        {
-            using var doc = JsonDocument.ParseValue(ref reader);
-            var root = doc.RootElement;
-
-            string? type = null;
-            if (root.TryGetProperty("Type", out var typeProp) && typeProp.ValueKind == JsonValueKind.String)
-                type = typeProp.GetString();
-
-            int size = 0;
-            if (root.TryGetProperty("Size", out var sizeProp) && sizeProp.ValueKind == JsonValueKind.Number)
-                size = sizeProp.GetInt32();
-
-            // Välj subklass baserat på Type (eller fallback på Size)
-            Vehicle vehicle = type?.ToLowerInvariant() switch
-            {
-                "car" => new Car(),
-                "mc" => new MC(),
-                _ => (size == 4 ? new Car() : new MC())
-            };
-
-            if (root.TryGetProperty("RegNo", out var regProp) && regProp.ValueKind == JsonValueKind.String)
-                vehicle.RegNo = regProp.GetString();
-
-            if (root.TryGetProperty("CheckInTime", out var timeProp))
-                vehicle.CheckInTime = timeProp.GetDateTime();
-
-            if (root.TryGetProperty("Size", out var sProp) && sProp.ValueKind == JsonValueKind.Number)
-                vehicle.Size = sProp.GetInt32();
-
-            return vehicle;
-        }
-
-        public override void Write(Utf8JsonWriter writer, Vehicle value, JsonSerializerOptions options)
-        {
-            writer.WriteStartObject();
-
-            writer.WriteString("Type", value.GetType().Name);
-            writer.WriteString("RegNo", value.RegNo);
-            writer.WriteString("CheckInTime", value.CheckInTime);
-            writer.WriteNumber("Size", value.Size);
-
-            writer.WriteEndObject();
         }
     }
 }
