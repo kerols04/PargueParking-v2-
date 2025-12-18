@@ -1,4 +1,3 @@
-using System;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PragueParkingV2.Core;
 
@@ -10,33 +9,27 @@ namespace PragueParkingV2.Tests
         [TestInitialize]
         public void Setup()
         {
-            PriceList.LoadPrices();
+            // Gör tester oberoende av externa filer
+            GarageSettings.Apply(new Config());
+            PriceList.LoadPrices("does_not_exist.txt"); // -> defaultpriser
         }
 
         [TestMethod]
-        public void Car_Should_Calculate_Correct_Fee_After_Two_Hours()
+        public void Car_Fee_For_2_Hours_Should_Be_40()
         {
-            var car = new Car("ABC123")
-            {
-                CheckInTime = DateTime.Now.AddHours(-2)
-            };
+            var car = new Car("ABC123");
+            car.CheckInTime = System.DateTime.Now.AddHours(-2);
 
-            decimal fee = car.CalculateFee();
-
-            Assert.AreEqual(40m, fee); // 2h * 20 kr/h
+            Assert.AreEqual(40m, car.CalculateFee());
         }
 
         [TestMethod]
-        public void MC_Should_Be_Free_Within_FreeMinutes()
+        public void MC_Fee_After_FreeMinutes_Should_Be_10()
         {
-            var mc = new MC("XYZ999")
-            {
-                CheckInTime = DateTime.Now.AddMinutes(-5)
-            };
+            var mc = new MC("MC1111");
+            mc.CheckInTime = System.DateTime.Now.AddMinutes(-(PriceList.FreeMinutes + 1));
 
-            decimal fee = mc.CalculateFee();
-
-            Assert.AreEqual(0m, fee);
+            Assert.AreEqual(10m, mc.CalculateFee());
         }
     }
 }
