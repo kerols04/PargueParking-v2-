@@ -1,363 +1,361 @@
-﻿using PragueParkingV2.Core;
+using System;
+using System.Globalization;
+using System.Linq;
+using PragueParkingV2.Core;
 using PragueParkingV2.Data;
 using Spectre.Console;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
 
 namespace PragueParkingV2.ConsoleApp
 {
-    public class ConsoleUI
+    public static class ConsoleUI
     {
-        // HJÄLPMETODER FÖR UI
-        // Rensar skärmen och skriver ut en snygg rubrik med ramar
-        private static void ShowTitle(string text)
+        public static void Run()
         {
-            AnsiConsole.Clear();
-            AnsiConsole.Write(
-                new Panel($"[bold cyan]{text}[/]")
-                    .BorderColor(Color.Cyan1)
-                    .Padding(1, 0)
-            );
+            while (true)
+            {
+                AnsiConsole.Clear();
+                ShowTitle();
+                ShowParkingOverview();
+                ShowQuickStats();
+
+                var choice = AnsiConsole.Prompt(
+                    new SelectionPrompt<string>()
+                        .Title("[yellow]Välj ett menyval:[/]")
+                        .AddChoices(
+                            "1) Parkera fordon",
+                            "2) Flytta fordon",
+                            "3) Ta bort fordon (utcheckning)",
+                            "4) Sök fordon",
+                            "5) Visa alla fordon",
+                            "6) Visa alla platser",
+                            "7) Ladda om priser (PriceList.txt)",
+                            "8) Avsluta"));
+
+                switch (choice.Substring(0, 1))
+                {
+                    case "1": ParkVehicle(); break;
+                    case "2": MoveVehicle(); break;
+                    case "3": RetrieveVehicle(); break;
+                    case "4": SearchVehicle(); break;
+                    case "5": ShowAllVehicles(); break;
+                    case "6": Pause("[grey]Tryck valfri tangent för att fortsätta...[/]"); break;
+                    case "7": ReloadPrices(); break;
+                    case "8": return;
+                }
+            }
+        }
+
+        private static void ShowTitle()
+        {
+            AnsiConsole.Write(new FigletText("Prague Parking").Centered());
             AnsiConsole.WriteLine();
         }
-        // PARKERINGSÖVERSIKT
-        // Visar en grafisk översikt över parkeringshuset
+
+        private static void ShowQuickStats()
+        {
+            var cfg = GarageSettings.Current;
+
+            var panel = new Panel(
+                $"[green]Lediga:[/] {PHus.CountEmptySpots()}    " +
+                $"[yellow]Delvis:[/] {PHus.CountPartialSpots()}    " +
+                $"[red]Fulla:[/] {PHus.CountFullSpots()}\n" +
+                $"[grey]Platser:[/] {PHus.GetAllSpots().Count}    " +
+                $"[grey]Gratisminuter:[/] {PriceList.FreeMinutes}    " +
+                $"[grey]Default SpotSize:[/] {cfg.DefaultSpotSize}"
+            )
+            { Header = new PanelHeader("Status") };
+
+            AnsiConsole.Write(panel);
+            AnsiConsole.WriteLine();
+        }
+
         private static void ShowParkingOverview()
         {
-            var spots = PHus.GetAllSpots();
-            var table = new Table();
-            table.Border(TableBorder.Rounded);
-            table.Title("[cyan]PARKERINGSKARTA[/]");
-            table.AddColumn(new TableColumn("[yellow]Rad[/]").Centered());
+            var spots = PHus.GetAllSpots().OrderBy(s => s.SpotNumber).ToList();
 
-            // Skapar 10 kolumner för rutorna 1-10
-            for (int i = 1; i <= 10; i++)
+            int columns = 10;
+            int rows = (int)Math.Ceiling(spots.Count / (double)columns);
+
+            var table = new Table().Border(TableBorder.Rounded).Title("[bold]Parkeringskarta[/]");
+
+            for (int c = 0; c < columns; c++)
+                table.AddColumn(new TableColumn(""));
+
+            for (int r = 0; r < rows; r++)
             {
-                table.AddColumn(new TableColumn($"[yellow]{i}[/]").Centered());
-            }
+                var rowCells = new string[columns];
 
-            List<string> row = new List<string>();
-            int count = 0;
-            int rowNumber = 1;
+                for (int c = 0; c < columns; c++)
+                {
+                    int spotIndex = r * columns + c;
+                    if (spotIndex >= spots.Count)
+                    {
+                        rowCells[c] = "";
+                        continue;
+                    }
 
-            foreach (var spot in spots)
-            {
-                string display;
-
-                // Väljer färg baserat på hur full platsen är
-                if (spot.IsEmpty())
-                {
-                    display = $"[green]███[/]"; // Grön = helt tom
-                }
-                else if (spot.IsFull())
-                {
-                    display = $"[red]███[/]"; // Röd = helt full
-                }
-                else
-                {
-                    display = $"[yellow]▒▒▒[/]"; // Gul = halvfull (plats kvar)
+                    rowCells[c] = FormatSpotCell(spots[spotIndex]);
                 }
 
-                // Visar platsnumret i mindre text under färgblocket
-                display += $"\n[dim]{spot.SpotNumber}[/]";
-
-                row.Add(display);
-                count++;
-
-                // När 10 platser är insamlade, lägg till som en ny rad i tabellen
-                if (count == 10)
-                {
-                    // Lägg till radnummer (1, 2, 3...) först
-                    row.Insert(0, $"[cyan]{rowNumber}[/]");
-                    table.AddRow(row.ToArray());
-                    row.Clear();
-                    count = 0;
-                    rowNumber++;
-                }
-            }
-
-            // Lägger till sista ofullständiga raden om det behövs
-            if (row.Count > 0)
-            {
-                while (row.Count < 10)
-                {
-                    row.Add("");
-                }
-                row.Insert(0, $"[cyan]{rowNumber}[/]");
-                table.AddRow(row.ToArray());
+                table.AddRow(rowCells);
             }
 
             AnsiConsole.Write(table);
             AnsiConsole.WriteLine();
-
-            // Förklaring av färgkoderna
-            var legend = new Panel(
-                "[green]███ Ledig[/] | [yellow]▒▒▒ Halvfull[/] | [red]███ Full[/]"
-            );
-            legend.Header = new PanelHeader("[yellow]Förklaring[/]");
-            legend.Border = BoxBorder.Rounded;
-            AnsiConsole.Write(legend);
-
-            // Visar statistik för antalet lediga/fulla platser
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"[yellow]Tomma platser:[/] {PHus.CountEmptySpots()} st");
-            AnsiConsole.MarkupLine($"[yellow]Halvfulla platser:[/] {PHus.CountPartialSpots()} st");
-            AnsiConsole.MarkupLine($"[yellow]Fulla platser:[/] {PHus.CountFullSpots()} st");
         }
-        // HUVUDMENY
-        // Startar huvudloopen för applikationen
-        public static void Run()
+
+        private static string FormatSpotCell(ParkingSpot spot)
         {
-            bool running = true;
+            string size = $"[grey]({spot.Capacity})[/]";
+            string label = $"[bold]{spot.SpotNumber:00}[/] {size}";
 
-            while (running)
-            {
-                ShowTitle("PRAGUE PARKING V2 - HUVUDMENY");
+            if (spot.ParkedVehicles.Count == 0)
+                return $"{label} - [grey]tom[/]";
 
-                // Visa en statusruta med aktuell beläggning
-                var statusPanel = new Panel(
-                    $"[yellow]Lediga enheter:[/] {PHus.GetAvailableSpace()}\n" +
-                    $"[yellow]Tomma platser:[/] {PHus.CountEmptySpots()}\n" +
-                    $"[yellow]Antal fordon:[/] {PHus.GetAllVehicles().Count}"
-                );
-                statusPanel.Header = new PanelHeader("[cyan]Status[/]");
-                statusPanel.Border = BoxBorder.Rounded;
-                AnsiConsole.Write(statusPanel);
-                AnsiConsole.WriteLine();
-
-                // Låter användaren välja i menyn
-                var choice = AnsiConsole.Prompt(
-                    new SelectionPrompt<string>()
-                        .Title("[cyan]Vad vill du göra?[/]")
-                        .PageSize(10)
-                        .AddChoices(new[]
-                        {
-                            "1. Parkera fordon",
-                            "2. Hämta fordon",
-                            "3. Flytta fordon",
-                            "4. Sök fordon",
-                            "5. Visa alla fordon",
-                            "6. Visa parkeringsöversikt",
-                            "7. Visa prislista för parking",
-                            "8. Avsluta"
-                        }));
-
-                // Plockar ut första siffran i valet ("1", "2", etc.)
-                string selected = choice.Substring(0, 1);
-
-                // Hanterar valet och kör rätt funktion
-                switch (selected)
-                {
-                    case "1":
-                        ParkVehicle();
-                        break;
-                    case "2":
-                        RetrieveVehicle();
-                        break;
-                    case "3":
-                        MoveVehicle();
-                        break;
-                    case "4":
-                        SearchVehicle();
-                        break;
-                    case "5":
-                        ShowAllVehicles();
-                        break;
-                    case "6":
-                        ShowTitle("PARKERINGSÖVERSIKT");
-                        ShowParkingOverview();
-                        AnsiConsole.MarkupLine("\n[grey]Tryck på valfri tangent för att fortsätta...[/]");
-                        Console.ReadKey(); // Pausar tills användaren trycker på tangent
-                        break;
-                    case "7":
-                        // Kör funktionen för att visa prislistan
-                        ReloadPrices();
-                        break;
-                    case "8":
-                        // Avslutar loopen och programmet
-                        running = false;
-                        AnsiConsole.MarkupLine("\n[green]Tack och hej![/]");
-                        break;
-                }
-            }
+            string regs = string.Join("|", spot.ParkedVehicles.Select(v => v.RegNo));
+            return $"{label} - [white]{regs}[/]";
         }
-        // PARKERA FORDON
-        // Funktion för att checka in ett nytt fordon
+
         private static void ParkVehicle()
         {
-            ShowTitle("PARKERA FORDON");
+            AnsiConsole.Clear();
+            ShowTitle();
 
-            // Låter användaren välja om det är Bil eller MC
-            var typeChoice = AnsiConsole.Prompt(
+            string typeChoice = AnsiConsole.Prompt(
                 new SelectionPrompt<string>()
-                    .Title("Välj fordonstyp:")
-                    .AddChoices(new[] { "Bil", "MC", "Avbryt" }));
+                    .Title("[yellow]Vilket fordon vill du parkera?[/]")
+                    .AddChoices("Bil", "Motorcykel"));
 
-            if (typeChoice == "Avbryt")
-                return;
+            string regNo = AskRegNo();
 
-            // Frågar efter registreringsnumret
-            string regNo = AnsiConsole.Ask<string>("Ange registreringsnummer:");
-
-            // Kollar om fordonet redan finns i garaget
-            var existing = PHus.FindVehicle(regNo);
-            if (existing != null)
+            if (PHus.FindVehicle(regNo) != null)
             {
-                AnsiConsole.MarkupLine($"\n[red]Ett fordon med registreringsnummer {regNo.ToUpper()} är redan parkerat![/]");
-                var spotNum = PHus.FindSpotNumber(regNo);
-                AnsiConsole.MarkupLine($"[yellow]Det står på plats {spotNum}[/]");
-                AnsiConsole.MarkupLine("\n[grey]Tryck på valfri tangent för att fortsätta...[/]");
-                Console.ReadKey();
+                AnsiConsole.MarkupLine($"[red]Regnr {regNo} finns redan parkerat.[/]");
+                Pause();
                 return;
             }
 
-            // Skapar rätt typ av fordon (Car eller MC)
-            Vehicle vehicle;
-            if (typeChoice == "Bil")
+            Vehicle vehicle = typeChoice == "Bil" ? new Car(regNo) : new MC(regNo);
+
+            bool parked = PHus.ParkVehicle(vehicle);
+
+            if (parked)
             {
-                vehicle = new Car(regNo);
-            }
-            else
-            {
-                vehicle = new MC(regNo);
-            }
-
-            // Visar en liten animation (spinner) medan systemet letar
-            AnsiConsole.Status()
-                .Start("Letar efter ledig plats...", ctx =>
-                {
-                    // Litet delay för att spinnern ska synas
-                    Thread.Sleep(500);
-                });
-
-            // Försöker parkera fordonet via PHus-klassen
-            if (PHus.ParkVehicle(vehicle))
-            {
-                var spotNum = PHus.FindSpotNumber(regNo);
-
-                // Grattis, parkering lyckades!
-                AnsiConsole.MarkupLine($"\n[green]✓ Fordonet {regNo.ToUpper()} har parkerats![/]");
-                AnsiConsole.MarkupLine($"[yellow]Plats:[/] {spotNum}");
-                AnsiConsole.MarkupLine($"[yellow]Typ:[/] {vehicle.GetVehicleTypeName()}");
-                AnsiConsole.MarkupLine($"[yellow]Incheckning:[/] {vehicle.CheckInTime:yyyy-MM-dd HH:mm:ss}");
-
-                // Sparar datan direkt i bakgrunden
+                int? spotNo = PHus.FindSpotNumber(regNo);
                 FileManager.SaveData(PHus.GetAllSpots());
+                AnsiConsole.MarkupLine($"[green]Klart![/] {vehicle.GetVehicleTypeName()} {regNo} parkerades på plats [bold]{spotNo}[/].");
             }
             else
             {
-                // Om ParkVehicle returnerar false
-                AnsiConsole.MarkupLine("\n[red]✗ Det finns ingen ledig plats![/]");
+                AnsiConsole.MarkupLine($"[red]Parkeringen är full eller kan inte ta emot fler av den här typen på en plats.[/]");
             }
 
-            AnsiConsole.MarkupLine("\n[grey]Tryck på valfri tangent för att fortsätta...[/]");
-            Console.ReadKey();
+            Pause();
         }
-        // HÄMTA FORDON
-        // Funktion för att checka ut ett fordon och visa kvitto
+
         private static void RetrieveVehicle()
         {
-            ShowTitle("HÄMTA FORDON");
+            AnsiConsole.Clear();
+            ShowTitle();
 
-            string regNo = AnsiConsole.Ask<string>("Ange registreringsnummer:");
+            string regNo = AskRegNo();
 
-            // Försöker hämta ut fordonet från PHus
-            Vehicle vehicle = PHus.RetrieveVehicle(regNo);
-
-            if (vehicle != null)
+            var vehicle = PHus.RetrieveVehicle(regNo);
+            if (vehicle == null)
             {
-                // Räknar ut hur länge fordonet stått och vad det kostar
-                TimeSpan duration = vehicle.GetParkingDuration();
-                decimal fee = vehicle.CalculateFee();
-
-                // Bygger upp kvittot i en snygg ram
-                var receipt = new Panel(
-                    $"[yellow]Registreringsnummer:[/] {vehicle.RegNo}\n" +
-                    $"[yellow]Fordonstyp:[/] {vehicle.GetVehicleTypeName()}\n" +
-                    $"[yellow]Incheckning:[/] {vehicle.CheckInTime:yyyy-MM-dd HH:mm:ss}\n" +
-                    $"[yellow]Utcheckning:[/] {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n" +
-                    $"[yellow]Parkerad tid:[/] {duration.Days}d {duration.Hours}h {duration.Minutes}m\n" +
-                    $"[yellow]Timpris:[/] {vehicle.GetHourlyRate()} CZK/h\n" +
-                    $"[cyan]══════════════════════════[/]\n" +
-                    $"[green bold]TOTALKOSTNAD: {fee} CZK[/]"
-                );
-                receipt.Header = new PanelHeader("[green]✓ KVITTO[/]");
-                receipt.Border = BoxBorder.Double;
-                AnsiConsole.Write(receipt);
-
-                // Visar ett extra meddelande om priset var 0
-                if (fee == 0)
-                {
-                    AnsiConsole.MarkupLine("\n[green]★ Gratis parkering! ★[/]");
-                }
-
-                // Sparar datan direkt i bakgrunden
-                FileManager.SaveData(PHus.GetAllSpots());
-            }
-            else
-            {
-                // Hittade inte fordonet
-                AnsiConsole.MarkupLine($"\n[red]✗ Hittade inget fordon med registreringsnummer {regNo.ToUpper()}[/]");
+                AnsiConsole.MarkupLine($"[red]Hittade inget fordon med regnr {regNo}.[/]");
+                Pause();
+                return;
             }
 
-            AnsiConsole.MarkupLine("\n[grey]Tryck på valfri tangent för att fortsätta...[/]");
-            Console.ReadKey();
+            decimal fee = vehicle.CalculateFee();
+            TimeSpan parkedTime = DateTime.Now - vehicle.CheckInTime;
+
+            FileManager.SaveData(PHus.GetAllSpots());
+
+            var panel = new Panel(
+                $"[bold]Regnr:[/] {vehicle.RegNo}\n" +
+                $"[bold]Typ:[/] {vehicle.GetVehicleTypeName()}\n" +
+                $"[bold]Incheckning:[/] {vehicle.CheckInTime:yyyy-MM-dd HH:mm}\n" +
+                $"[bold]Parkeringstid:[/] {FormatDuration(parkedTime)}\n" +
+                $"[bold]Avgift:[/] {fee} kr")
+            { Header = new PanelHeader("Kvitto") };
+
+            AnsiConsole.Write(panel);
+            Pause();
         }
 
-        // FLYTTA FORDON
-        // Funktion för att flytta ett fordon till en ny plats (automatisk optimering)
         private static void MoveVehicle()
         {
-            ShowTitle("FLYTTA FORDON");
+            AnsiConsole.Clear();
+            ShowTitle();
 
-            string regNo = AnsiConsole.Ask<string>("Ange registreringsnummer:");
+            string regNo = AskRegNo();
 
-            // Kollar var fordonet står just nu
-            var oldSpot = PHus.FindSpotNumber(regNo);
-
-            // Försöker flytta fordonet. (Flytt-funktionen i PHus kollar om det finns plats)
-            if (PHus.MoveVehicle(regNo))
+            if (PHus.FindVehicle(regNo) == null)
             {
-                var newSpot = PHus.FindSpotNumber(regNo);
+                AnsiConsole.MarkupLine($"[red]Hittade inget fordon med regnr {regNo}.[/]");
+                Pause();
+                return;
+            }
 
-                // Flytt lyckades
-                AnsiConsole.MarkupLine($"\n[green]✓ Fordonet {regNo.ToUpper()} har flyttats![/]");
-                AnsiConsole.MarkupLine($"[yellow]Från plats:[/] {oldSpot}");
-                AnsiConsole.MarkupLine($"[yellow]Till plats:[/] {newSpot}");
+            int maxSpot = PHus.GetAllSpots().Count;
 
-                // Sparar datan direkt i bakgrunden
-                FileManager.SaveData(PHus.GetAllSpots());
+            string input = AnsiConsole.Ask<string>($"Ange [yellow]ny plats[/] (1–{maxSpot}), eller tryck Enter för [grey]auto[/]: ").Trim();
+
+            bool moved;
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                moved = PHus.MoveVehicle(regNo);
+            }
+            else if (int.TryParse(input, out int target) && target >= 1 && target <= maxSpot)
+            {
+                moved = PHus.MoveVehicle(regNo, target);
             }
             else
             {
-                // Hittade inte fordonet, eller kunde inte hitta ny plats
-                AnsiConsole.MarkupLine($"\n[red]✗ Hittade inget fordon med registreringsnummer {regNo.ToUpper()}[/]");
+                AnsiConsole.MarkupLine("[red]Ogiltig plats.[/]");
+                Pause();
+                return;
             }
 
-            AnsiConsole.MarkupLine("\n[grey]Tryck på valfri tangent för att fortsätta...[/]");
-            Console.ReadKey();
+            FileManager.SaveData(PHus.GetAllSpots());
+
+            int? newSpot = PHus.FindSpotNumber(regNo);
+
+            if (moved)
+                AnsiConsole.MarkupLine($"[green]Flyttad![/] {regNo} står nu på plats [bold]{newSpot}[/].");
+            else
+                AnsiConsole.MarkupLine($"[yellow]Kunde inte flytta till önskad plats.[/] {regNo} står nu på plats [bold]{newSpot}[/].");
+
+            Pause();
         }
-        // SÖK FORDON
-        // Funktion för att hitta och visa information om ett parkerat fordon
+
         private static void SearchVehicle()
         {
-            ShowTitle("SÖK FORDON");
+            AnsiConsole.Clear();
+            ShowTitle();
 
-            string regNo = AnsiConsole.Ask<string>("Ange registreringsnummer:");
+            string regNo = AskRegNo();
 
-            // Försöker hitta fordonet
-            Vehicle vehicle = PHus.FindVehicle(regNo);
-
-            if (vehicle != null)
+            var vehicle = PHus.FindVehicle(regNo);
+            if (vehicle == null)
             {
-                // Beräknar position, tid och kostnad för visning
-                var spotNum = PHus.FindSpotNumber(regNo);
-                TimeSpan duration = vehicle.GetParkingDuration();
-                decimal currentFee = vehicle.CalculateFee();
+                AnsiConsole.MarkupLine($"[red]Hittade inget fordon med regnr {regNo}.[/]");
+                Pause();
+                return;
+            }
 
-                // Visar all information i en ruta
-                var info = new Panel(
-                    $"[yellow]Registreringsnummer:[/] {vehicle.RegNo}\n" +
-                    $"[yellow]Fordonstyp:[/] {vehicle.GetVehicleTypeName()}\
+            int? spotNo = PHus.FindSpotNumber(regNo);
+            TimeSpan parkedTime = DateTime.Now - vehicle.CheckInTime;
+
+            var panel = new Panel(
+                $"[bold]Regnr:[/] {vehicle.RegNo}\n" +
+                $"[bold]Typ:[/] {vehicle.GetVehicleTypeName()}\n" +
+                $"[bold]Plats:[/] {spotNo}\n" +
+                $"[bold]Storlek:[/] {vehicle.Size}\n" +
+                $"[bold]Incheckning:[/] {vehicle.CheckInTime:yyyy-MM-dd HH:mm}\n" +
+                $"[bold]Parkeringstid:[/] {FormatDuration(parkedTime)}\n" +
+                $"[bold]Avgift just nu:[/] {vehicle.CalculateFee()} kr")
+            { Header = new PanelHeader("Info") };
+
+            AnsiConsole.Write(panel);
+            Pause();
+        }
+
+        private static void ShowAllVehicles()
+        {
+            AnsiConsole.Clear();
+            ShowTitle();
+
+            var table = new Table().Border(TableBorder.Rounded).Title("[bold]Alla fordon[/]");
+            table.AddColumn("Plats");
+            table.AddColumn("Typ");
+            table.AddColumn("Regnr");
+            table.AddColumn("Storlek");
+            table.AddColumn("Incheckning");
+            table.AddColumn("Tid");
+            table.AddColumn("Avgift nu");
+
+            var spots = PHus.GetAllSpots().OrderBy(s => s.SpotNumber);
+            int count = 0;
+
+            foreach (var spot in spots)
+            {
+                foreach (var v in spot.ParkedVehicles.OrderBy(x => x.RegNo))
+                {
+                    count++;
+                    var duration = DateTime.Now - v.CheckInTime;
+
+                    table.AddRow(
+                        spot.SpotNumber.ToString(CultureInfo.InvariantCulture),
+                        v.GetVehicleTypeName(),
+                        v.RegNo,
+                        v.Size.ToString(CultureInfo.InvariantCulture),
+                        v.CheckInTime.ToString("yyyy-MM-dd HH:mm"),
+                        FormatDuration(duration),
+                        $"{v.CalculateFee()} kr"
+                    );
+                }
+            }
+
+            if (count == 0)
+                AnsiConsole.MarkupLine("[grey]Inga fordon parkerade just nu.[/]");
+            else
+                AnsiConsole.Write(table);
+
+            Pause();
+        }
+
+        private static void ReloadPrices()
+        {
+            AnsiConsole.Clear();
+            ShowTitle();
+
+            PriceList.LoadPrices();
+
+            var table = new Table().Border(TableBorder.Rounded).Title("[bold]Prislista (PriceList.txt)[/]");
+            table.AddColumn("Key");
+            table.AddColumn("Pris (kr/h)");
+
+            foreach (var kv in PriceList.GetAllPrices().OrderBy(k => k.Key))
+                table.AddRow(kv.Key, kv.Value.ToString(CultureInfo.InvariantCulture));
+
+            AnsiConsole.Write(table);
+            AnsiConsole.MarkupLine($"[grey]FreeMinutes:[/] {PriceList.FreeMinutes}");
+            Pause();
+        }
+
+        private static string AskRegNo()
+        {
+            while (true)
+            {
+                string regNo = AnsiConsole.Ask<string>("Ange registreringsnummer (1–10 tecken): ").Trim().ToUpperInvariant();
+
+                if (IsValidRegNo(regNo))
+                    return regNo;
+
+                AnsiConsole.MarkupLine("[red]Ogiltigt regnr.[/] (Inga mellanslag, max 10 tecken, ej # eller |)");
+            }
+        }
+
+        private static bool IsValidRegNo(string regNo)
+        {
+            if (string.IsNullOrWhiteSpace(regNo)) return false;
+            if (regNo.Length > 10) return false;
+            if (regNo.Any(char.IsWhiteSpace)) return false;
+            if (regNo.Contains('#') || regNo.Contains('|')) return false;
+            return true;
+        }
+
+        private static string FormatDuration(TimeSpan ts)
+            => $"{ts.Days}d {ts.Hours}h {ts.Minutes:00}m";
+
+        private static void Pause(string message = "[grey]Tryck valfri tangent för att fortsätta...[/]")
+        {
+            AnsiConsole.MarkupLine(message);
+            Console.ReadKey(true);
+        }
+    }
+}
+
