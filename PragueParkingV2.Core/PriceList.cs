@@ -7,14 +7,22 @@ namespace PragueParkingV2.Core
 {
     public static class PriceList
     {
-        private static Dictionary<string, decimal> prices = new Dictionary<string, decimal>();
+        // Case-insensitive så “car” och “Car” funkar likadant
+        private static readonly Dictionary<string, decimal> prices =
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
         public static int FreeMinutes { get; private set; } = 10;
 
         public static void LoadPrices(string filePath = "PriceList.txt")
         {
             try
             {
-                if (!File.Exists(filePath))
+                // Letar både i current dir och i output-mappen
+                string resolved = File.Exists(filePath)
+                    ? filePath
+                    : Path.Combine(AppContext.BaseDirectory, filePath);
+
+                if (!File.Exists(resolved))
                 {
                     SetDefaultPrices();
                     return;
@@ -23,16 +31,13 @@ namespace PragueParkingV2.Core
                 prices.Clear();
                 FreeMinutes = 10;
 
-                foreach (var rawLine in File.ReadAllLines(filePath))
+                foreach (var rawLine in File.ReadAllLines(resolved))
                 {
-                    // 1) Ta bort inline-kommentarer: "Car=20 # bil" -> "Car=20"
+                    // Tar bort inline-kommentarer: "Car=20 # bil" -> "Car=20"
                     string line = rawLine.Split('#')[0].Trim();
-
-                    // 2) Hoppa över tomma rader
                     if (string.IsNullOrWhiteSpace(line))
                         continue;
 
-                    // 3) Key=Value
                     string[] parts = line.Split('=');
                     if (parts.Length != 2) continue;
 
@@ -43,11 +48,9 @@ namespace PragueParkingV2.Core
                     {
                         if (int.TryParse(value, out int minutes))
                             FreeMinutes = minutes;
-
                         continue;
                     }
 
-                    // Decimal: först invariant (.), annars current culture (, i Sverige)
                     if (decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal price) ||
                         decimal.TryParse(value, NumberStyles.Number, CultureInfo.CurrentCulture, out price))
                     {
@@ -64,6 +67,7 @@ namespace PragueParkingV2.Core
 
         private static void SetDefaultPrices()
         {
+            // Standardpriser (CZK/h)
             prices["Car"] = 20;
             prices["MC"] = 10;
             FreeMinutes = 10;
@@ -77,5 +81,9 @@ namespace PragueParkingV2.Core
             Console.WriteLine($"Varning: Inget pris hittat för {vehicleType}, använder 0 CZK");
             return 0;
         }
+
+        // Behövs för UI som listar alla priser
+        public static IReadOnlyDictionary<string, decimal> GetAllPrices()
+            => new Dictionary<string, decimal>(prices, StringComparer.OrdinalIgnoreCase);
     }
 }
