@@ -1,89 +1,99 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 
 namespace PragueParkingV2.Core
 {
-    // Den här klassen håller koll på alla priser. Den är statisk så att koden kan nå priserna överallt i programmet
     public static class PriceList
     {
-        private static Dictionary<string, decimal> prices = new Dictionary<string, decimal>();
-        public static int FreeMinutes { get; private set; } = 10;
+        private static readonly Dictionary<string, decimal> prices = new();
+        public static int FreeMinutes { get; private set; }
 
-        // Här läser programmet in priserna från PriceList.txt-filen.
-        public static void LoadPrices(string filePath = "PriceList.txt")
+        public static string DefaultFilePath => Path.Combine(AppContext.BaseDirectory, "PriceList.txt");
+
+        public static void LoadPrices(string filePath = null)
         {
+            filePath = string.IsNullOrWhiteSpace(filePath) ? DefaultFilePath : filePath;
+
+            if (!Path.IsPathRooted(filePath))
+                filePath = Path.Combine(AppContext.BaseDirectory, filePath);
+
             try
             {
-                // Kontrollera om filen finns
                 if (!File.Exists(filePath))
                 {
                     SetDefaultPrices();
+                    SaveDefaultPriceFile(filePath);
                     return;
                 }
 
                 prices.Clear();
-                FreeMinutes = 10; // Sätter tillbaka startvärdet
+                FreeMinutes = 0;
 
-                // Läs alla rader från filen
-                string[] lines = File.ReadAllLines(filePath);
-
-                foreach (string line in lines)
+                foreach (var rawLine in File.ReadAllLines(filePath))
                 {
-                    // Hoppa över tomma rader och kommentarer (börjar med #)
-                    if (string.IsNullOrWhiteSpace(line) || line.Trim().StartsWith("#"))
+                    var line = rawLine;
+                    int hashIndex = line.IndexOf('#');
+                    if (hashIndex >= 0)
+                        line = line.Substring(0, hashIndex);
+
+                    line = line.Trim();
+                    if (string.IsNullOrWhiteSpace(line))
                         continue;
 
-                    // Dela upp rad vid '='
-                    string[] parts = line.Split('=');
+                    var parts = line.Split('=', 2);
+                    if (parts.Length != 2)
+                        continue;
 
-                    if (parts.Length == 2)
+                    string key = parts[0].Trim();
+                    string valueString = parts[1].Trim();
+
+                    if (key.Equals("FreeMinutes", StringComparison.OrdinalIgnoreCase))
                     {
-                        string key = parts[0].Trim();
-                        string value = parts[1].Trim();
-
-                        // Speciell hantering för FreeMinutes
-                        if (key == "FreeMinutes")
-                        {
-                            if (int.TryParse(value, out int minutes))
-                            {
-                                FreeMinutes = minutes;
-                            }
-                        }
-                        else if (decimal.TryParse(value, out decimal price))
-                        {
-                            prices[key] = price;
-                        }
+                        if (int.TryParse(valueString, NumberStyles.Integer, CultureInfo.InvariantCulture, out int minutes))
+                            FreeMinutes = minutes;
+                        continue;
                     }
+
+                    if (decimal.TryParse(valueString, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal value))
+                        prices[key] = value;
                 }
+
+                if (!prices.ContainsKey("Car") || !prices.ContainsKey("MC"))
+                    SetDefaultPrices();
             }
-            catch (Exception ex)
+            catch
             {
-                // Om något går fel med filen, visa felet och använd standardpriserna.
-                Console.WriteLine($"Fel vid laddning av prislista: {ex.Message}");
                 SetDefaultPrices();
             }
         }
 
-        // Sätt standardpriser om fil inte finns eller inte går att läsa
+        public static decimal GetPrice(string vehicleType)
+            => prices.TryGetValue(vehicleType, out var price) ? price : 0;
+
+        public static IReadOnlyDictionary<string, decimal> GetAllPrices() => prices;
+
         private static void SetDefaultPrices()
         {
+            prices.Clear();
             prices["Car"] = 20;
             prices["MC"] = 10;
             FreeMinutes = 10;
         }
 
-        // Hämta pris för en fordonstyp
-        public static decimal GetPrice(string vehicleType)
+        private static void SaveDefaultPriceFile(string filePath)
         {
-            if (prices.ContainsKey(vehicleType))
-            {
-                return prices[vehicleType];
-            }
+            var content =
+@"# Prague Parking V2 - Prislista
+# Format: KEY=VALUE
+# Kommentarer kan stå efter # (inline).
 
-            // Standardvärde om typen inte finns
-            Console.WriteLine($"Varning: Inget pris hittat för {vehicleType}, använder 0 CZK");
-            return 0;
+Car=20           # kr per timme
+MC=10            # kr per timme
+FreeMinutes=10   # gratis minuter innan debitering
+";
+            File.WriteAllText(filePath, content);
         }
     }
 }
