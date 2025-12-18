@@ -1,7 +1,6 @@
-﻿using PragueParkingV2.ConsoleApp;
+using System;
 using PragueParkingV2.Core;
 using PragueParkingV2.Data;
-using System;
 
 namespace PragueParkingV2.ConsoleApp
 {
@@ -9,37 +8,38 @@ namespace PragueParkingV2.ConsoleApp
     {
         static void Main(string[] args)
         {
-            // STEG 1: Laddar in alla priser från textfilen
             PriceList.LoadPrices();
 
-            // STEG 2: Laddar in inställningarna för garaget från config.json
             var config = FileManager.LoadConfig();
+            GarageSettings.Apply(config);
 
-            // STEG 3: Laddar in sparade fordon från parkingdata.json
-            var spots = FileManager.LoadData();
+            var loadedSpots = FileManager.LoadData();
 
-            if (spots != null && spots.Count > 0)
+            if (loadedSpots != null && loadedSpots.Count > 0)
             {
-                // Om det fanns sparad data, använd den listan med platser
-                PHus.LoadSpots(spots);
+                PHus.LoadSpots(loadedSpots);
+                EnsureSpotCount(config);
             }
             else
             {
-                // Om filen var tom, skapar vi nya tomma platser istället
                 PHus.ResetSpots(config.TotalSpots);
             }
 
-            // STEG 4: Starta huvudmenyn direkt
             ConsoleUI.Run();
 
-            // STEG 5: När programmet stängs, spara all aktuell data
-            Console.WriteLine();
-            Console.WriteLine("→ Sparar parkeringsdata...");
             FileManager.SaveData(PHus.GetAllSpots());
-            Console.WriteLine();
-
-            // Sista meddelandet innan programmet stängs
             Console.WriteLine("Tack för att du använde systemet!");
+        }
+
+        private static void EnsureSpotCount(Config config)
+        {
+            var spots = PHus.GetAllSpots();
+            if (spots.Count >= config.TotalSpots) return;
+
+            for (int i = spots.Count + 1; i <= config.TotalSpots; i++)
+            {
+                spots.Add(new ParkingSpot(i, config.GetSpotSize(i)));
+            }
         }
     }
 }
